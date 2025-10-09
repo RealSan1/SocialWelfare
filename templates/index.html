@@ -1,390 +1,241 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>통합 복지서비스</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Noto Sans KR', sans-serif;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>통합 복지서비스</title>
+<style>
+    * { margin:2px; padding:0; box-sizing:border-box; font-family:'Noto Sans KR',sans-serif;}
+    body { background:#f5f5f5; color:#333; line-height:1.6;}
 
-        body {
-            background-color: #f5f5f5;
-            color: #333;
-            line-height: 1.6;
-        }
+    /* 헤더 */
+    header { background:#004aad; color:#fff; padding:1.5rem; text-align:center;}
+    header h1 { font-size:2rem;}
 
-        /* 헤더 */
-        header {
-            background-color: #004aad;
-            color: white;
-            padding: 1.5rem;
-            text-align: center;
-        }
+    /* 검색 */
+    .search-filter-container { padding:0.8rem; background:#fff; box-shadow:0 2px 4px rgba(0,0,0,0.1); margin-bottom:1rem;}
+    .search-container input { padding:0.7rem; font-size:1.5rem; width:80%; max-width:800px; border:1px solid #ccc; border-radius:5px; margin-bottom:0.8rem;}
+    .search-container button { padding:0.7rem 1.2rem; font-size:1.5rem; background:#004aad; color:#fff; border:none; border-radius:5px; cursor:pointer; margin-left:0.5rem;}
+    .search-container button:hover { background:#003a8c;}
 
-        header h1 {
-            font-size: 2rem;
-        }
+    /* 필터 테이블 */
+    .filter-table { width:100%; max-width:900px; margin:0 auto; border-collapse:collapse; background:#fff;}
+    .filter-table th { background:#E0E0E0; padding:0.8rem; text-align:center; font-size:1.2rem; border:1px solid #ddd;}
+    .filter-table td { padding:0.5rem; border:1px solid #ddd; vertical-align:top;}
+    .filter-group { text-align:left; padding:0.5rem;}
+    .filter-scroll { max-height:350px; overflow-y:auto; }
+    .filter-group label { display:block; font-size:1.1rem; margin:0.3rem 0;}
+    .filter-group input[type="checkbox"] { width:1.2rem; height:1.2rem; margin-right:0.5rem;}
 
-        /* 검색 및 필터 컨테이너 */
-        .search-filter-container {
-            padding: 0.8rem;
-            background-color: #fff;
-            text-align: center; /* 전체 정렬을 다시 중앙으로 */
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            margin-bottom: 1rem;
-        }
+    /* 버튼형 필터 */
+    .filter-btn { display:inline-block; padding:0.4rem 0.8rem; border-radius:5px; border:1px solid #ccc; background:#ffffff; cursor:pointer; margin:2px; font-size:0.9rem;}
+    .filter-btn.selected { background:#004aad; color:#fff; }
+    .filter-btn.excluded { background:#ff4d4f; color:#fff; }
 
-        .search-container input {
-            padding: 0.7rem;
-            font-size: 1.5rem;
-            width: 80%;
-            max-width: 800px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            margin-bottom: 0.8rem;
-        }
+    /* 선택/제외 목록 */
+    .selected-excluded { max-width:900px; margin:auto; margin-top:1rem; padding:0.5rem; background:#f9f9f9; border-radius:5px;}
+    .selected-excluded div { margin:0.5rem 0; font-size:1.1rem;}
 
-        .search-container button {
-            padding: 0.7rem 1.2rem;
-            font-size: 1.5rem;
-            background-color: #004aad;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-left: 0.5rem;
-        }
+    /* 서비스 리스트 */
+    .service-list { max-width:900px; margin:2rem auto; padding:1rem; background:#fff; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,0.15);}
+    .service-item { background:#f9f9f9; margin-bottom:0.8rem; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1); cursor:pointer; transition:transform 0.2s, box-shadow 0.2s;}
+    .service-item:hover { transform:translateY(-3px); box-shadow:0 4px 10px rgba(0,0,0,0.15);}
+    .service-item-header { padding:1.2rem; font-size:1.4rem; font-weight:600; display:grid; justify-content:space-between; align-items:center; justify-items:start}
+    .service-category-label, .service-category-Etype { display:inline-table; justify-content:center; align-items:center; padding:1px 8px; height:30px; background:#003087; color:#fff; border-radius:10px; font-size:0.9rem; margin-right:5px;}
+    .service-item-details { display:none; padding:1.2rem; background:#fff; font-size:1.0rem; color:#555; border-top:1px solid #eee; line-height:1.8;}
+    .service-item.active .service-item-details { display:block;}
+    .service-item.hidden { display:none;}
 
-        .search-container button:hover {
-            background-color: #003a8c;
-        }
+    /* 푸터 */
+    footer { background:#333; color:#fff; text-align:center; padding:1rem; position:relative; bottom:0; width:100%;}
 
-        /* 필터 테이블 */
-        .filter-table {
-            width: 100%;
-            max-width: 900px;
-            margin: 0 auto;
-            border-collapse: collapse;
-            background-color: #fff;
-        }
-
-        .filter-table th {
-            background-color: #e6f0fa;
-            padding: 0.8rem;
-            text-align: center;
-            font-size: 1.2rem;
-            border: 1px solid #ddd;
-        }
-
-        .filter-table td {
-            padding: 0.5rem;
-            border: 1px solid #ddd;
-            vertical-align: top;
-        }
-
-        .filter-group {
-            text-align: left; /* 테이블 내 내용만 왼쪽 정렬 */
-            padding: 0.5rem;
-        }
-
-        .filter-group label {
-            display: block;
-            font-size: 1.1rem;
-            margin: 0.3rem 0;
-        }
-
-        .filter-group input[type="checkbox"] {
-            width: 1.2rem;
-            height: 1.2rem;
-            margin-right: 0.5rem;
-        }
-
-        /* 선택/제외 목록 */
-        .selected-excluded {
-            max-width: 900px;
-            text-align: left;
-            margin: auto;
-            margin-top: 1rem;
-            padding: 0.5rem;
-            background-color: #f9f9f9;
-            border-radius: 5px;
-        }
-
-        .selected-excluded div {
-            margin: 0.5rem 0;
-            font-size: 1.1rem;
-        }
-
-        /* 리스트 (중점 디자인) */
-        .service-list {
-            max-width: 900px;
-            margin: 2rem auto;
-            padding: 1rem;
-            background-color: #fff;
-            border-radius: 10px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-        }
-
-        .service-item {
-            background-color: #f9f9f9;
-            margin-bottom: 0.8rem;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            cursor: pointer;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .service-item:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
-        }
-
-        .service-item-header {
-            padding: 1.2rem;
-            font-size: 1.4rem;
-            font-weight: 600;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .service-category-label {
-            background-color: #004aad;
-            color: white;
-            padding: 0.3rem 0.8rem;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            font-weight: 500;
-        }
-
-        .service-item-details {
-            display: none;
-            padding: 1.2rem;
-            background-color: #fff;
-            font-size: 1.1rem;
-            color: #555;
-            border-top: 1px solid #eee;
-            line-height: 1.8;
-        }
-
-        .service-item.active .service-item-details {
-            display: block;
-        }
-
-        .service-item.hidden {
-            display: none;
-        }
-
-        /* 푸터 */
-        footer {
-            background-color: #333;
-            color: white;
-            text-align: center;
-            padding: 1rem;
-            position: relative;
-            bottom: 0;
-            width: 100%;
-        }
-
-        /* 반응형 디자인 */
-        @media (max-width: 768px) {
-            header h1 {
-                font-size: 1.5rem;
-            }
-
-            .search-container input {
-                width: 95%;
-                font-size: 1rem;
-            }
-
-            .search-container button {
-                font-size: 1rem;
-                padding: 0.6rem 1rem;
-            }
-
-            .filter-table {
-                display: block;
-                overflow-x: auto;
-            }
-
-            .filter-table th, .filter-table td {
-                min-width: 150px;
-            }
-
-            .service-list {
-                max-width: 100%;
-                margin: 1.5rem 0.5rem;
-            }
-
-            .service-item-header {
-                font-size: 1.2rem;
-            }
-
-            .service-item-details {
-                font-size: 1rem;
-            }
-        }
-    </style>
+    /* 반응형 */
+    @media (max-width:768px){
+        header h1 { font-size:1.5rem;}
+        .search-container input { width:95%; font-size:1rem;}
+        .search-container button { font-size:1rem; padding:0.6rem 1rem;}
+        .filter-table th, .filter-table td { min-width:120px;}
+        .service-list { max-width:100%; margin:1.5rem 0.5rem;}
+        .service-item-header { font-size:1.2rem;}
+        .service-item-details { font-size:1rem;}
+    }
+</style>
 </head>
 <body>
-    <header>
-        <h1>통합 복지서비스</h1>
-    </header>
+<header><h1>통합 복지서비스</h1></header>
 
-    <div class="search-filter-container">
-        <div class="search-container">
-            <input type="text" placeholder="복지서비스 검색..." aria-label="복지서비스 검색">
-            <button aria-label="검색">검색</button>
-        </div>
-        <table class="filter-table">
-            <thead>
-                <tr>
-                    <th>생애주기</th>
-                    <th>가구상황</th>
-                    <th>관심주제</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td class="filter-group">
-                        <label><input type="checkbox" class="filter-toggle" data-value="임신·출산"> 임신·출산</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="영유아"> 영유아</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="아동·청소년"> 아동·청소년</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="청년"> 청년</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="중장년"> 중장년</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="노인"> 노인</label>
-                    </td>
-                    <td class="filter-group">
-                        <label><input type="checkbox" class="filter-toggle" data-value="저소득"> 저소득</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="disabled"> 장애인</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="singleparent"> 한부모·조손</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="multicultural"> 다문화·북한이탈주민</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="crisis"> 그 밖의 위기상황</label>
-                    </td>
-                    <td class="filter-group">
-                        <label><input type="checkbox" class="filter-toggle" data-value="economy"> 경제</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="employment"> 고용</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="housing"> 주거</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="health"> 건강</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="education"> 교육</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="care"> 돌봄</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="culture"> 문화·정보·행정</label>
-                        <label><input type="checkbox" class="filter-toggle" data-value="safety"> 안전·권익</label>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
-        <div class="selected-excluded">
-            <div id="selected-list">선택된 목록: 없음</div>
-            <div id="excluded-list">제외된 목록: 없음</div>
-        </div>
+<div class="search-filter-container">
+    <div class="search-container">
+        <input type="text" placeholder="복지서비스 검색..." aria-label="복지서비스 검색">
+        <button aria-label="검색">검색</button>
     </div>
 
-    <div class="service-list">
-        <div class="service-item" data-category="노인">
-            <div class="service-item-header">
-                노인 복지서비스 1 <span class="service-category-label">노인</span>
-            </div>
-            <div class="service-item-details">
-                <p>노인 복지서비스에 대한 자세한 정보입니다. 지원 대상, 신청 방법 등 API에서 가져온 상세 설명이 들어갑니다.</p>
-            </div>
-        </div>
-        <div class="service-item" data-category="저소득">
-            <div class="service-item-header">
-                저소득 가구 지원 서비스 <span class="service-category-label">저소득</span>
-            </div>
-            <div class="service-item-details">
-                <p>저소득 가구를 위한 지원 서비스 설명. API 데이터 삽입.</p>
-            </div>
-        </div>
-        <div class="service-item" data-category="health">
-            <div class="service-item-header">
-                건강 관리 프로그램 <span class="service-category-label">건강</span>
-            </div>
-            <div class="service-item-details">
-                <p>건강 관련 복지 프로그램 상세 정보.</p>
-            </div>
-        </div>
+    <table class="filter-table">
+        <thead>
+            <tr>
+                <th>생애주기</th>
+                <th>가구상황</th>
+                <th>관심주제</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td id="life-cycle"></td>
+                <td id="household"></td>
+                <td id="interest"></td>
+            </tr>
+        </tbody>
+    </table>
+
+    <div class="selected-excluded">
+        <div id="selected-list">선택된 목록: 없음</div>
+        <div id="excluded-list">제외된 목록: 없음</div>
     </div>
+</div>
 
-    <!-- <footer>
-        <p>&copy; 2025 한국 복지서비스 안내. 모든 권리 보유.</p>
-    </footer> -->
+<div class="service-list"></div>
 
-    <script>
-        // 리스트 아이템 클릭 시 세부 정보 토글
-        document.querySelectorAll('.service-item').forEach(item => {
-            item.addEventListener('click', () => {
-                item.classList.toggle('active');
-            });
-        });
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+    const serviceList = document.querySelector(".service-list");
+    serviceList.innerHTML = "<p>데이터를 불러오는 중입니다...</p>";
 
-        // 필터 토글 및 선택/제외 로직
-        const filterCheckboxes = document.querySelectorAll('.filter-toggle');
-        const selectedList = document.getElementById('selected-list');
-        const excludedList = document.getElementById('excluded-list');
-        const serviceItems = document.querySelectorAll('.service-item');
+    // 필터 카테고 정의
+    const filters = {
+        "life-cycle": ["임신·출산","영유아","아동·청소년","청년","중장년","노인"],
+        "household": ["저소득","disabled","singleparent","multicultural","crisis"],
+        "interest": ["경제","직업","주거","건강","교육","돌봄","문화생활","안전"]
+    };
 
-        let selectedCategories = new Set();
-        let excludedCategories = new Set();
+    const selectedCategories = new Set();
+    const excludedCategories = new Set();
 
-        filterCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', () => {
-                const category = checkbox.getAttribute('data-value');
-                const isChecked = checkbox.checked;
-                let clickCount = checkbox.dataset.clickCount ? parseInt(checkbox.dataset.clickCount) : 0;
+    // 필터 버튼 생성
+    for (const [id, arr] of Object.entries(filters)) {
+        const container = document.getElementById(id);
+        arr.forEach(cat=>{
+            const btn = document.createElement("button");
+            btn.className = "filter-btn";
+            btn.textContent = cat;
+            btn.dataset.value = cat;
+            btn.dataset.clickCount = 0;
+            container.appendChild(btn);
 
-                if (isChecked) {
-                    clickCount = (clickCount + 1) % 3; // 0, 1, 2로 순환
-                    checkbox.dataset.clickCount = clickCount;
+            btn.addEventListener("click", ()=>{
+                let count = parseInt(btn.dataset.clickCount);
+                count = (count + 1)%3;
+                btn.dataset.clickCount = count;
 
-                    if (clickCount === 1) {
-                        // 첫 번째 클릭: 선택
-                        selectedCategories.add(category);
-                        excludedCategories.delete(category);
-                    } else if (clickCount === 2) {
-                        // 두 번째 클릭: 제외
-                        excludedCategories.add(category);
-                        selectedCategories.delete(category);
-                    }
-                } else {
-                    // 체크 해제 시 양쪽에서 제거
-                    selectedCategories.delete(category);
-                    excludedCategories.delete(category);
-                    delete checkbox.dataset.clickCount;
+                selectedCategories.delete(cat);
+                excludedCategories.delete(cat);
+                btn.classList.remove("selected","excluded");
+
+                if(count===1){
+                    selectedCategories.add(cat); btn.classList.add("selected");
+                } else if(count===2){
+                    excludedCategories.add(cat); btn.classList.add("excluded");
                 }
 
-                // 목록 업데이트
-                selectedList.textContent = `선택된 목록: ${Array.from(selectedCategories).join(', ') || '없음'}`;
-                excludedList.textContent = `제외된 목록: ${Array.from(excludedCategories).join(', ') || '없음'}`;
-
-                // 필터 적용
+                updateLists();
                 applyFilters();
             });
         });
+    }
 
-        function applyFilters() {
-            serviceItems.forEach(item => {
-                const category = item.getAttribute('data-category');
-                let shouldShow = true;
+    const selectedList = document.getElementById('selected-list');
+    const excludedList = document.getElementById('excluded-list');
 
-                // 제외 필터 우선 적용
-                if (excludedCategories.has(category)) {
-                    shouldShow = false;
-                }
-                // 포함 필터 적용
-                else if (selectedCategories.size > 0 && !selectedCategories.has(category)) {
-                    shouldShow = false;
-                }
+    function updateLists(){
+        selectedList.textContent = `선택된 목록: ${Array.from(selectedCategories).join(', ')||'없음'}`;
+        excludedList.textContent = `제외된 목록: ${Array.from(excludedCategories).join(', ')||'없음'}`;
+    }
 
-                item.classList.toggle('hidden', !shouldShow);
-            });
+    // 서비스 데이터 불러오기
+    let services = [];
+    try{
+        const res = await fetch("https://port-0-socialwelfare-mgjckxvm97f5b4e4.sel3.cloudtype.app/services");
+        const data = await res.json();
+        services = data.data;
+        renderServices(services);
+    }catch(e){
+        console.error(e);
+        serviceList.innerHTML = "<p>데이터를 불러오지 못했습니다.</p>";
+    }
+
+    function renderServices(list){
+        serviceList.innerHTML="";
+        list.forEach(service=>{
+            const item = document.createElement("div");
+            item.className = "service-item";
+            item.dataset.category = service.카테고리.join(",");
+
+            item.innerHTML=`
+                <div class="service-item-header">
+                    ${service.정책명 || "제목 없음"}
+                    <span class="service-category-label">${service.카테고리.join(", ")}</span>
+                </div>
+                <div class="service-item-details">
+                    <p><strong>지원대상:</strong> ${service.지원대상 || "정보 없음"}</p>
+                    <p><strong>참고사항:</strong> ${service.참고사항 || "정보 없음"}</p>
+                    <p><strong>상세내용:</strong> ${service.상세내용 || "정보 없음"}</p>
+                    <p><strong>신청:</strong><a href="${service.링크}" target="_blank">상세보기 링크</a></p>
+                </div>
+            `;
+            item.addEventListener("click", ()=>{ item.classList.toggle("active"); });
+            serviceList.appendChild(item);
+        });
+    }
+
+    function applyFilters(){
+        const items = document.querySelectorAll(".service-item");
+        items.forEach(item=>{
+            const cats = item.dataset.category.split(",");
+            let show = true;
+
+            // 제외 필터 우선
+            if(cats.some(c=>excludedCategories.has(c))) show=false;
+            // 선택 필터 적용
+            else if(selectedCategories.size>0 && !cats.some(c=>selectedCategories.has(c))) show=false;
+
+            item.classList.toggle("hidden",!show);
+        });
+    }
+
+    function renderPagination(totalItems){
+    const totalPages = Math.ceil(totalItems/itemsPerPage);
+    const container = document.getElementById("pagination");
+    container.innerHTML="";
+    if(totalPages<=1) return;
+
+    const groupSize = 10;
+    let currentGroupStart = Math.floor((currentPage-1)/groupSize)*groupSize + 1;
+    let currentGroupEnd = Math.min(currentGroupStart + groupSize - 1, totalPages);
+
+    function createBtn(label, page, disabled=false){
+        const btn = document.createElement("button");
+        btn.textContent = label;
+        if(disabled) btn.classList.add("disabled");
+        if(!disabled){
+            btn.onclick = () => { currentPage=page; renderList(filteredItems()); };
         }
-    </script>
+        return btn;
+    }
+
+    container.appendChild(createBtn("<<", 1, currentPage===1));
+    container.appendChild(createBtn("<", currentGroupStart-1, currentGroupStart===1));
+
+    for(let i=currentGroupStart;i<=currentGroupEnd;i++){
+        const btn = createBtn(i, i);
+        if(i===currentPage) btn.classList.add("active");
+        container.appendChild(btn);
+    }
+
+    container.appendChild(createBtn(">", currentGroupEnd+1, currentGroupEnd===totalPages));
+    container.appendChild(createBtn(">>", totalPages, currentPage===totalPages));
+}
+});
+</script>
+
+<footer>© 2025 통합 복지서비스</footer>
 </body>
 </html>
