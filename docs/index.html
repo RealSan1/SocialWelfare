@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>통합 복지서비스</title>
 <link rel="stylesheet" href="style.css"/>
+<script src="script.js"> </script>
 </head>
 <body>
 <header><h1>통합 복지서비스</h1></header>
@@ -39,106 +40,7 @@
 </div>
 
 <div class="service-list"></div>
-
-<script>
-document.addEventListener("DOMContentLoaded", async () => {
-    const serviceList = document.querySelector(".service-list");
-    serviceList.innerHTML = "<p>데이터를 불러오는 중입니다...</p>";
-
-const filters = {
-    "life-cycle": ["임신·출산·영유아","아동","청소년","청년","중장년·노인"],
-    "household": ["저소득층","장애인","여성","한부모","다문화·북한이탈주민","국가보훈대상","맞벌이"],
-    "interest": ["환경·교통","디지털·정보격차","안전","위기","법률","신체건강","정신건강","문화·여가","생활지원","주거","보육","교육","입양·위탁보호","돌봄","금융","에너지","농어민","기타"]
-};
-
-    const selectedCategories = new Set();
-    const excludedCategories = new Set();
-
-    for (const [id, arr] of Object.entries(filters)) {
-        const container = document.getElementById(id);
-        arr.forEach(cat=>{
-            const btn = document.createElement("button");
-            btn.className = "filter-btn";
-            btn.textContent = cat;
-            btn.dataset.value = cat;
-            btn.dataset.clickCount = 0;
-            container.appendChild(btn);
-
-            btn.addEventListener("click", ()=>{
-                let count = parseInt(btn.dataset.clickCount);
-                count = (count + 1)%3;
-                btn.dataset.clickCount = count;
-
-                selectedCategories.delete(cat);
-                excludedCategories.delete(cat);
-                btn.classList.remove("selected","excluded");
-
-                if(count===1){ selectedCategories.add(cat); btn.classList.add("selected"); }
-                else if(count===2){ excludedCategories.add(cat); btn.classList.add("excluded"); }
-
-                updateLists();
-                applyFilters();
-            });
-        });
-    }
-
-    const selectedList = document.getElementById('selected-list');
-    const excludedList = document.getElementById('excluded-list');
-
-    function updateLists(){
-        selectedList.textContent = `선택된 목록: ${Array.from(selectedCategories).join(', ')||'없음'}`;
-        excludedList.textContent = `제외된 목록: ${Array.from(excludedCategories).join(', ')||'없음'}`;
-    }
-
-    let services = [];
-    try{
-        const res = await fetch("https://port-0-socialwelfare-mgjckxvm97f5b4e4.sel3.cloudtype.app/services");
-        const data = await res.json();
-        services = data.data;
-        renderServices(services);
-    }catch(e){
-        console.error(e);
-        serviceList.innerHTML = "<p>데이터를 불러오지 못했습니다.</p>";
-    }
-
-    function renderServices(list){
-        serviceList.innerHTML="";
-        list.forEach(service=>{
-            const item = document.createElement("div");
-            item.className = "service-item";
-            item.dataset.category = service.카테고리.join(",");
-
-            item.innerHTML=`
-                <div class="service-item-header">
-                    <span>${service.정책명 || "제목 없음"}</span>
-                    ${service.카테고리.map(c=>`<span class="service-category-label">${c}</span>`).join('')}
-                </div>
-                <div class="service-item-details">
-                    <p><strong>참고사항:</strong> ${service.참고사항 || "정보 없음"}</p>
-                    <p><strong>지원대상:</strong> ${service.지원대상 || "정보 없음"}</p>
-                    <p><strong>상세내용:</strong> ${service.상세내용 || "정보 없음"}</p>
-                    <p><strong>복지신청:</strong> <a href="${service.링크}" target="_blank">지원 신청하기</a></p>
-                </div>
-            `;
-            item.addEventListener("click", ()=>{ item.classList.toggle("active"); });
-            serviceList.appendChild(item);
-        });
-    }
-
-    function applyFilters(){
-        const items = document.querySelectorAll(".service-item");
-        items.forEach(item=>{
-            const cats = item.dataset.category.split(",").map(c=>c.trim());
-            let show = true;
-
-            if(cats.some(c=>excludedCategories.has(c))) show=false;
-            else if(selectedCategories.size>0 && !cats.some(c=>selectedCategories.has(c))) show=false;
-
-            item.classList.toggle("hidden", !show);
-        });
-    }
-});
-</script>
+<div id="pagination" class="pagination"></div>
 
 <footer>© 2025 통합 복지서비스</footer>
 </body>
