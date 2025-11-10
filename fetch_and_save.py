@@ -1,7 +1,7 @@
 import requests
 import time
 import xml.etree.ElementTree as ET
-import db
+from db import engine
 import re
 import os
 from dotenv import load_dotenv
@@ -13,7 +13,8 @@ load_dotenv(dotenv_path="apikey.env")
 
 SERVICE_KEY = os.getenv("SERVICE_KEY")
 
-con = db.get_conn()
+conn = engine.raw_connection()
+cur = conn.cursor()
 
 COMMON_PARAMS = {
     "serviceKey": SERVICE_KEY,
@@ -23,18 +24,13 @@ COMMON_PARAMS = {
     "srchKeyCode": "001",
 }
 
-
 def 정리(text: str) -> str:
     if not text:
         return ""
-    # 1. 양쪽 공백 제거
     text = text.strip()
-    # 2. 연속 공백 → 한 칸
     text = re.sub(r'\s+', ' ', text)
-    # 3. 줄바꿈 제거
     text = text.replace('\n', ' ').replace('\r', ' ')
     return text
-
 
 def fetch_list(page_no: int):
     params = COMMON_PARAMS.copy()
@@ -54,10 +50,11 @@ def fetch_detail(serv_id: str):
     return res.text
 
 if __name__ == "__main__":
-    total_pages = 10
-    result_data = []
+    total_pages = 256
 
     for page in range(5, total_pages + 1):
+        result_data = []  # 페이지마다 초기화
+
         try:
             xml_text = fetch_list(page)
             root = ET.fromstring(xml_text)
@@ -91,8 +88,6 @@ if __name__ == "__main__":
                 })
 
                 time.sleep(0.3)
-            print(result_data)
-            cur = con.cursor()
 
             for row in result_data:
                 sql = """
@@ -114,10 +109,11 @@ if __name__ == "__main__":
                     row["slctCritCn"],
                     row["alwServCn"]
                 ))
-                print("저장 완료")
-            con.commit()
-            print(f"총 {len(result_data)}개 항목 DB에 저장 완료")
 
+            conn.commit()
+            print(f"[page {page}] {len(result_data)}개 저장 완료")
 
         except Exception as e:
             print(f"[!] page {page} 에서 오류: {e}")
+
+conn.close()

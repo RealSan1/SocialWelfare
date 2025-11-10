@@ -3,17 +3,17 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, MetaData, Table, Column, String, Text, Integer, ForeignKey
 
 # 개발 시
-# load_dotenv("apikey.env")
-# DB_USER = os.getenv("DATABASE_USER")
-# DB_PASS = os.getenv("DATABASE_PASSWORD")
-# DB_HOST = os.getenv("DATABASE_URL")
-# DB_NAME = os.getenv("DATABASE_NAME")
+load_dotenv("apikey.env")
+DB_USER = os.getenv("DATABASE_USER")
+DB_PASS = os.getenv("DATABASE_PASSWORD")
+DB_HOST = os.getenv("DATABASE_URL")
+DB_NAME = os.getenv("DATABASE_NAME")
 
 # 배포 시
-DB_USER = os.environ.get("DATABASE_USER", "root")
-DB_PASS = os.environ.get("DATABASE_PASSWORD", "")
-DB_HOST = os.environ.get("DATABASE_URL", "localhost")
-DB_NAME = os.environ.get("DATABASE_NAME", "welfare")
+# DB_USER = os.environ.get("DATABASE_USER", "root")
+# DB_PASS = os.environ.get("DATABASE_PASSWORD", "")
+# DB_HOST = os.environ.get("DATABASE_URL", "localhost")
+# DB_NAME = os.environ.get("DATABASE_NAME", "welfare")
 
 
 engine = create_engine(

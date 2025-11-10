@@ -1,12 +1,15 @@
-import db, ollama, re
+import ollama, re, os, sys
 
-con = db.get_conn()
-cur = con.cursor()
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from db import engine
+
+conn = engine.raw_connection()
+cur = conn.cursor()
 
 # ------------------------
 # NLP 분류 준비
 # ------------------------
-with open("prompt.txt", "r", encoding="utf-8") as f:
+with open("NLP/prompt.txt", "r", encoding="utf-8") as f:
     system_prompt = f.read()
 
 def classify_welfare(text: str) -> str:
@@ -87,7 +90,7 @@ for row in rows:
             ON DUPLICATE KEY UPDATE
                 카테고리=VALUES(카테고리)
         """, (서비스ID, category))
-        con.commit()
+        conn.commit()
         print(f"[{서비스ID}] 카테고리 저장 완료 → {category}")
     else:
         print(f"[!] 부모 복지서비스 없음, 카테고리 저장 스킵: {서비스ID}")
