@@ -1,5 +1,5 @@
 [project]
-name = "mcp"
+name = "MyMCPProject"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -7,4 +7,9 @@ requires-python = ">=3.10"
 dependencies = [
     "google-genai>=1.46.0",
     "python-dotenv>=1.2.1",
+    "playwright>=1.55.0",
+    "ollama>=0.6.0",
+    "fastmcp>=2.13.0.2",
+    "beautifulsoup4>=4.14.2",
+    "openai>=2.8.0",
 ]

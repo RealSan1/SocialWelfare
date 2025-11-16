@@ -1,0 +1,424 @@
+import asyncio
+import requests
+import os
+import re
+import json
+from urllib.parse import urlparse
+from dotenv import load_dotenv
+from fastmcp import FastMCP, Context
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+import ollama
+from google import genai
+from google.genai import types
+import traceback
+
+# ========================================
+# 환경설정
+# ========================================
+
+load_dotenv("api.env")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+
+headers = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/100.0.4896.127 Safari/537.36"
+    )
+}
+
+mcp = FastMCP(name="MCPServer")
+# ========================================
+# Ollama 필터링 함수
+# ========================================
+async def filter_with_ollama(item):
+    if not item.get("snippet"):
+        return None
+
+    prompt = f"""
+다음 웹페이지 본문이 단순한 '재단소개, 인사말, 연혁, 메뉴구조'인지,
+아니면 실제 '지원사업, 장학, 복지, 프로그램 모집 공고'인지 구분하세요.
+
+단순 소개형이면 "IGNORE"만 출력하세요.
+지원사업 관련이면 아래 형식으로 요약하세요:
+
+[프로그램명]: ...
+[지원대상]: ...
+[지원내용]: ...
+[신청기간]: ...
+[신청링크]: {item['url']}
+
+본문:
+{item['snippet']}
+"""
+    try:
+        response = await asyncio.to_thread(
+            ollama.chat,
+            model="gpt-oss:20b",
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        output_text = ""
+        if "message" in response:
+            output_text = response["message"]["content"]
+        elif "messages" in response:
+            output_text = response["messages"][-1]["content"]
+        else:
+            output_text = str(response)
+
+        output_text = output_text.strip()
+        print(f"[Ollama 응답] {item['url']} | {output_text[:100]}...")
+
+        if output_text.upper() == "IGNORE":
+            return None
+
+        item["filtered_snippet"] = output_text
+        return item
+
+    except Exception as e:
+        print(f"[Ollama 오류] {item['url']} | {e}")
+        item["error"] = f"Ollama error: {e}"
+        return None
+
+# ========================================
+# Playwright 크롤링
+# ========================================
+
+CONTENT_SELECTORS = [
+    "main", "article", "#content", ".content", ".post",
+    ".program", ".board-view", "#container"
+]
+
+EXCLUDE_KEYWORDS_URL = [
+    "intro", "greeting", "about", "history", "연혁",
+    "privacy", "terms", "login", "logout", "qna", "faq", "contact",
+    "공지", "소식", "news", "board", "notice",
+]
+
+def is_excluded_url(url: str) -> bool:
+    lower_url = url.lower()
+    return any(k in lower_url for k in EXCLUDE_KEYWORDS_URL)
+
+def is_meaningless_text(text: str):
+    text = text.strip()
+    exclude_phrases = [
+        "인사말", "설립취지", "연혁", "소개합니다", "아이디", "비밀번호",
+        "이사회", "정보마당", "찾아오시는 길", "오시는 길", "공지사항", "조직도", "일반공지", "영상"
+    ]
+    matched = [p for p in exclude_phrases if p in text]
+    if matched:
+        return True, f"[스킵 단어] {', '.join(matched)}"
+    return False, ""
+
+def is_valid_url(url: str) -> bool:
+    try:
+        resp = requests.head(url, timeout=1, allow_redirects=True)
+        return resp.status_code == 200
+    except Exception as e:
+        return False
+
+def extract_first_json_array(text: str) -> str | None:
+    match = re.search(r'\[.*?\]', text, re.DOTALL)
+    if match:
+        return match.group(0)
+    return None
+
+async def fetch_rendered(ctx: Context, page, url):
+    ctx.debug(f"탐색 시작: {url}")
+    try:
+        await page.goto(url, wait_until="networkidle", timeout=15000)
+        await page.wait_for_timeout(1500)
+    except PlaywrightTimeoutError:
+        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+
+    await page.eval_on_selector_all(
+        "header, footer, script, style, noscript",
+        "els => els.forEach(e => e.remove())"
+    )
+
+    text = ""
+    for sel in CONTENT_SELECTORS:
+        try:
+            node = await page.query_selector(sel)
+            if node:
+                await node.eval_on_selector_all(
+                    "nav, aside, .menu, .sidebar",
+                    "els => els.forEach(e => e.remove())"
+                )
+                text = await node.inner_text()
+                if len(text.strip()) > 100:
+                    break
+        except Exception:
+            continue
+
+    if not text:
+        body = await page.locator("body").element_handle()
+        if body:
+            await body.eval_on_selector_all(
+                "nav, aside, .menu, .sidebar",
+                "els => els.forEach(e => e.remove())"
+            )
+            text = await body.inner_text()
+
+    title = await page.title()
+    text = " ".join(text.split())
+
+    skip, reason = is_meaningless_text(text)
+    if skip:
+        ctx.debug(f"[스킵됨] {url} | 이유: {reason} | 텍스트 길이: {len(text)}")
+        return title.strip(), ""
+    else:
+        ctx.debug(f"[수집됨] {url} | 텍스트 길이: {len(text)}")
+
+    return title.strip(), text[:1500]
+
+async def crawl_playwright_async(ctx: Context, start_url: str, max_depth: int):
+    await ctx.debug(f"사이트 검색 시작 {start_url}")
+    visited = set()
+    results = []
+    queue = [(start_url, 0)]
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(user_agent="ScholarshipBot/1.1")
+        page = await context.new_page()
+
+        while queue:
+            url, depth = queue.pop(0)
+            await ctx.debug(f"크롤링 대상 URL: {url} | depth: {depth}")
+
+            # depth 초과 및 중복 URL 필터링
+            if url in visited or depth > max_depth:
+                continue
+
+            # URL 유효성 검증 추가
+            if not is_valid_url(url):
+                continue
+
+            # 크롤링 제외 URL
+            if is_excluded_url(url):
+                continue
+
+            visited.add(url)
+
+
+            # 렌더링 시도
+            try:
+                title, snippet = await fetch_rendered(ctx, page, url)
+                if snippet:
+                    results.append({"url": url, "title": title, "snippet": snippet})
+            except Exception as e:
+                results.append({"url": url, "error": str(e)})
+
+            # 내부 링크 수집
+            try:
+                anchors = await page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+            except Exception as e:
+                anchors = []
+
+            for href in anchors:
+                if not href:
+                    continue
+                if urlparse(href).netloc == urlparse(start_url).netloc:
+                    normalized = href.split("#")[0]
+                    if normalized not in visited and not is_excluded_url(normalized):
+                        queue.append((normalized, depth + 1))
+
+            await asyncio.sleep(0.3)
+
+    await browser.close()
+
+    return {"count": len(results), "data": results}
+
+# ========================================
+# Gemini 기반 구글서치 + URL 리스트 추출 도구
+# ========================================
+
+@mcp.tool
+async def search_sites_with_gemini(ctx: Context) -> str:
+    await ctx.debug("URL 검색 시작")
+
+    client = genai.Client(api_key=GEMINI_KEY)
+    grounding_tool = types.Tool(google_search=types.GoogleSearch())
+    config = types.GenerateContentConfig(tools=[grounding_tool])
+
+    # 기업 그룹별 쿼리 리스트
+    foundations_groups = [
+        "삼성, 현대",
+        "신한, 현대",
+        "LG, SK",
+        "롯데, 한화",
+        "포스코, CJ",
+        "KT, IBK",
+    ]
+
+    all_results = []
+    seen_urls = set()
+
+    for group in foundations_groups:
+        prompt = f"""
+        검색을 수행하라. Tool 호출 없이는 답변하면 안 된다.
+
+        기존 지식으로 답변 금지.
+        반드시 Google Search 도구를 사용해 실제 검색 결과를 참고해라.
+        
+        다음 재단들의 장학재단 URL을 최대한 많이 찾아줘: {group}
+
+        JSON 배열로 출력:
+        [{{"foundation": "재단명", "url": "https://..."}}]
+        """
+
+        try:
+            response = client.models.generate_content(
+                # model="gemini-2.5-flash-lite",
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=config
+            )
+            text = response.text or ""
+
+            # JSON 배열 부분만 추출하는 함수 필요
+            json_str = extract_first_json_array(text)
+            if not json_str:
+                await ctx.debug(f"[{group}] JSON 배열 추출 실패")
+                continue
+
+            data = json.loads(json_str)
+
+            for item in data:
+                url = item.get("url", "").strip()
+                if url and url not in seen_urls and is_valid_url(url):
+                    seen_urls.add(url)
+                    all_results.append(item)
+                else:
+                    await ctx.debug(f"유효하지 않은 URL 제외: {url}")
+
+        except Exception as e:
+            await ctx.debug(f"[{group}] Gemini 호출 또는 파싱 오류: {e}")
+            continue
+
+    await ctx.debug(f"총 유니크 URL 개수: {len(all_results)}")
+    return json.dumps(all_results, ensure_ascii=False)
+
+# ========================================
+# 검색 -> 크롤링 한번에 실행하는 도구
+# ========================================
+
+@mcp.tool
+async def crawl_from_search(ctx: Context, urls: list, max_depth: int) -> str:
+    await ctx.debug("크롤링 시작")
+
+    handled = []
+
+    try:
+        for url in urls:
+            await ctx.debug(f"단일 URL 처리 시작: {url}")
+            try:
+                r = await crawl_playwright_async(ctx, url, max_depth)
+                handled.append(r)
+            except Exception as e:
+                err = str(e) or "unknown_error"
+                handled.append({"url": url, "error": err})
+                await ctx.debug(f"크롤링 예외 처리: {err}")
+
+        return json.dumps(handled, ensure_ascii=False)
+
+    except Exception as e:
+        await ctx.debug(f"크롤링 에러발생: {e}")
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+# ========================================
+# 크롤링 정보 검증 도구
+# ========================================
+@mcp.tool
+async def verify_crawled_info(title: str, snippet: str) -> str:
+    prompt = f"""
+    다음은 크롤링한 장학사업 정보입니다.
+
+    제목: {title}
+
+    요약:
+    {snippet}
+
+    이 정보가 실제 '대한민국 기업 장학재단'의 공식 장학금 또는 복지 서비스 신청 페이지에 관한 내용인지 검증해 주세요.
+
+    - 만약 내용이 명확히 장학금이나 복지 서비스 신청과 관련되어 있으면, "VALID"만 정확히 출력하세요.
+    - 관련이 없거나 불명확하거나 광고, 뉴스, 기타 정보라면 "INVALID"만 정확히 출력하세요.
+    - 다른 설명이나 문장은 출력하지 마세요.
+    """
+
+    # try:
+    #     resp = requests.post(
+    #         "http://localhost:11434/api/generate",
+    #         json={"model": "gpt-oss:20b", "prompt": prompt, "stream": False},
+    #         headers=headers,
+    #         timeout=30,
+    #     )
+    #     result = resp.json().get("response", "").strip().upper()
+    try:
+        client = genai.Client(api_key=GEMINI_KEY)
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        
+
+        text = response.text or ""
+        return text
+        # result = text.strip().upper()
+        # if result == "VALID":
+        #     return "VALID"
+        # elif result == "INVALID":
+        #     return "INVALID"
+        # else:
+        #     return f"UNKNOWN RESPONSE: {result}"  
+    except Exception as e:
+        return f"Verification failed: {e}"
+
+# ========================================
+# Ollama / Gemini MCP 도구
+# ========================================
+@mcp.tool
+def chat_ollama(prompt: str) -> str:
+    try:
+        resp = requests.post(
+            "http://localhost:11434/api/generate",
+            json={"model": "gpt-oss:20b", "prompt": prompt, "stream": False},
+            headers=headers,
+            timeout=30
+        )
+        return resp.json().get("response", "No response")
+    except Exception as e:
+        logging.error("GPT-OSS 에러발생")
+        return f"Ollama request failed: {e}"
+
+@mcp.tool
+def chat_gemini(prompt: str) -> str:
+    try:
+        client = genai.Client(api_key=GEMINI_KEY)
+        grounding_tool = types.Tool(google_search=types.GoogleSearch())
+        config = types.GenerateContentConfig(tools=[grounding_tool])
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=prompt,
+            config=config
+        )
+
+        text = response.text if response.text else ""
+        return text.strip() if text else "(No response)"
+    except Exception as e:
+        return f"[ERROR] Gemini: {e}"
+
+# ========================================
+# MCP 서버 실행
+# ========================================
+if __name__ == "__main__":
+    import sys
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+    if sys.platform.startswith("win"):
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    print("=== MCP Server started (stdio mode) ===")
+    mcp.run()

@@ -4,29 +4,19 @@ from fastapi import FastAPI, Query
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 from dotenv import load_dotenv
-import ollama  # ✅ Ollama 추가
+import ollama 
 
-# ------------------------
-# FastAPI 초기 설정
-# ------------------------
 app = FastAPI(title="Scholarship Foundation Crawler", version="2.0")
 
-# ------------------------
-# 환경변수
-# ------------------------
 load_dotenv("apikey.env")
 
-# ------------------------
 # 후보 셀렉터
-# ------------------------
 CONTENT_SELECTORS = [
     "main", "article", "#content", ".content", ".post",
     ".program", ".board-view", "#container"
 ]
 
-# ------------------------
 # URL 필터링 규칙
-# ------------------------
 EXCLUDE_KEYWORDS_URL = [
     "intro", "greeting", "about", "history", "연혁",
     "privacy", "terms", "login", "logout", "qna", "faq", "contact",
@@ -37,10 +27,7 @@ def is_excluded_url(url: str) -> bool:
     lower_url = url.lower()
     return any(k in lower_url for k in EXCLUDE_KEYWORDS_URL)
 
-
-# ------------------------
 # 텍스트 필터링 규칙
-# ------------------------
 def is_meaningless_text(text: str):
     text = text.strip()
     exclude_phrases = [
@@ -52,10 +39,6 @@ def is_meaningless_text(text: str):
         return True, f"[스킵 단어] {', '.join(matched)}"
     return False, ""
 
-
-# ------------------------
-# 페이지 렌더링 및 본문 추출
-# ------------------------
 async def fetch_rendered(page, url):
     try:
         await page.goto(url, wait_until="networkidle", timeout=15000)
@@ -105,9 +88,6 @@ async def fetch_rendered(page, url):
     return title.strip(), text[:1500]
 
 
-# ------------------------
-# Ollama 기반 필터링
-# ------------------------
 async def filter_with_ollama(item):
     """
     Ollama를 사용하여 '지원사업 공고' 관련 여부를 판별하고 요약 생성
@@ -115,7 +95,6 @@ async def filter_with_ollama(item):
     if not item.get("snippet"):
         return None
 
-    # ---- 프롬프트 구성 ----
     prompt = f"""
 다음 웹페이지 본문이 단순한 '재단소개, 인사말, 연혁, 메뉴구조'인지,
 아니면 실제 '지원사업, 장학, 복지, 프로그램 모집 공고'인지 구분하세요.
@@ -134,14 +113,12 @@ async def filter_with_ollama(item):
 """
 
     try:
-        # ✅ Ollama는 동기 함수이므로 asyncio.to_thread 로 감쌈
         response = await asyncio.to_thread(
             ollama.chat,
             model="gpt-oss:20b",
             messages=[{"role": "user", "content": prompt}],
         )
 
-        # ✅ 응답 구조 호환 처리
         output_text = ""
         if "message" in response:
             output_text = response["message"]["content"]
@@ -152,10 +129,8 @@ async def filter_with_ollama(item):
 
         output_text = output_text.strip()
 
-        # ✅ 디버깅 로그
         print(f"[Ollama 응답] {item['url']} | {output_text[:100]}...")
 
-        # ✅ IGNORE 판별
         if output_text.upper() == "IGNORE":
             return None
 
@@ -216,16 +191,12 @@ async def crawl_playwright(
 
         await browser.close()
 
-    # ✅ Ollama 필터링 적용
     filtered_results = await asyncio.gather(*[filter_with_ollama(item) for item in results])
     filtered_results = [item for item in filtered_results if item is not None]
 
     return {"count": len(filtered_results), "data": filtered_results}
 
 
-# ------------------------
-# 서버 실행
-# ------------------------
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
