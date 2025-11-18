@@ -300,9 +300,6 @@ async def search_sites_with_gemini(ctx: Context) -> str:
     await ctx.debug(f"총 유니크 URL 개수: {len(all_results)}")
     return json.dumps(all_results, ensure_ascii=False)
 
-# ========================================
-# 검색 -> 크롤링 한번에 실행하는 도구
-# ========================================
 
 @mcp.tool
 async def crawl_from_search(ctx: Context, urls: list, max_depth: int) -> str:
@@ -327,9 +324,6 @@ async def crawl_from_search(ctx: Context, urls: list, max_depth: int) -> str:
         await ctx.debug(f"크롤링 에러발생: {e}")
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
-# ========================================
-# 크롤링 정보 검증 도구
-# ========================================
 @mcp.tool
 async def verify_crawled_info(title: str, snippet: str) -> str:
     prompt = f"""
@@ -359,22 +353,114 @@ async def verify_crawled_info(title: str, snippet: str) -> str:
         client = genai.Client(api_key=GEMINI_KEY)
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-flash-lite",
             contents=prompt,
         )
         
+        text = (response.text or "").strip()
+        # 정규화: 모델이 여분의 문장이나 설명을 반환할 수 있으므로
+        # 'VALID' 또는 'INVALID' 토큰을 찾아 우선적으로 반환합니다.
+        txt_up = text.upper()
+        if txt_up == "VALID" or txt_up == "INVALID":
+            return txt_up
 
-        text = response.text or ""
-        return text
-        # result = text.strip().upper()
-        # if result == "VALID":
-        #     return "VALID"
-        # elif result == "INVALID":
-        #     return "INVALID"
-        # else:
-        #     return f"UNKNOWN RESPONSE: {result}"  
+        m = re.search(r"\b(VALID|INVALID)\b", txt_up)
+        if m:
+            return m.group(1)
+
+        # 토큰을 못 찾으면 원문을 포함한 식별 가능한 메시지 반환
+        short = text if len(text) <= 200 else text[:200] + "..."
+        return f"UNKNOWN RESPONSE: {short}"
     except Exception as e:
-        return f"Verification failed: {e}"
+        return f"VERIFICATION_FAILED: {e}"
+
+@mcp.tool
+async def summary_info(title: str, snippet: str) -> str:
+    """제공된 제목과 요약을 바탕으로 복지 내용을 한국어로 간결하게 요약하여 반환합니다.
+    출력은 최대 1-3문장의 간결한 요약문(핵심 지원대상, 지원내용, 신청방법/조건 포함)을 반환하며,
+    불필요한 설명이나 카테고리명은 포함하지 마세요.
+    """
+
+    prompt = f"""
+    당신은 한국 복지정보를 정확하고 간결하게 요약하는 전문가입니다.
+
+    다음 제목과 내용을 읽고, 핵심 지원대상, 지원내용, 신청방법(가능한 경우), 주요조건을 포함하여 한국어로 1~3문장으로 요약하세요.
+    절대 다른 설명이나 출력은 오직 요약문만 포함해야 합니다.
+
+    제목: {title}
+    내용: {snippet}
+    """
+
+    try:
+        client = genai.Client(api_key=GEMINI_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-lite",
+            contents=prompt,
+        )
+        text = (response.text or "").strip()
+        if text:
+            return text
+        return "요약 불가"
+    except Exception as e:
+        return f"SUMMARIZE_FAILED: {e}"
+
+@mcp.tool
+async def generate_title_and_category(summary: str) -> str:
+    """요약된 복지 정보를 받아, 사용자 친화적인 제목과 해당하는 복지 카테리(복수 가능)를
+    JSON 형식으로 반환합니다. 반환 예시:
+    {"generated_title": "새로운 제목", "categories": ["아동", "교육"]}
+    """
+    categories = [
+        '임신·출산','영유아','아동','청소년','청년','중장년·노인','저소득층','장애인','여성','한부모',
+        '다문화·북한이탈주민','보훈대상','맞벌이','환경·교통','디지털','안전','위기','법률','신체건강','정신건강',
+        '문화·여가','생활지원','주거','보육','교육','입양·위탁보호','돌봄','금융','에너지','농어민','기타'
+    ]
+
+    prompt = f"""
+    당신은 한국 복지정보를 요약해서 사용자 친화적인 제목을 만들고, 주된 복지 대상/주제를 아래 카테고리 목록에서 선택하는 전문가입니다.
+
+    입력으로 제공되는 '요약'을 읽고:
+    - 1문장 내외의 간결하고 매력적인 `generated_title`을 생성하세요.
+    - 해당 요약에 가장 적절한 카테고리(복수 가능)를 선택해 `categories` 배열로 만드세요.
+
+    반드시 출력은 유효한 JSON 한 개체만 다음 형식으로 출력하세요 (다른 텍스트는 허용하지 않음):
+    {{"generated_title": "...", "categories": ["...", "..."]}}
+
+    카테고리 목록:
+    {', '.join(categories)}
+
+    요약:
+    {summary}
+    """
+    try:
+        client = genai.Client(api_key=GEMINI_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+        )
+        text = (response.text or "").strip()
+
+        # JSON 객체 추출
+        m = re.search(r"\{.*\}", text, re.DOTALL)
+        if m:
+            jtxt = m.group(0)
+            try:
+                obj = json.loads(jtxt)
+                return json.dumps(obj, ensure_ascii=False)
+            except Exception:
+                return jtxt
+
+        # fallback: 간단한 JSON 생성
+        # 가능한 경우 카테고리 키워드 추출
+        found = []
+        for c in categories:
+            if c in summary and c not in found:
+                found.append(c)
+
+        gen_title = summary.split('\n')[0][:80]
+        return json.dumps({"generated_title": gen_title, "categories": found or ["기타"]}, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"generated_title": "", "categories": ["기타"], "error": str(e)}, ensure_ascii=False)
 
 # ========================================
 # Ollama / Gemini MCP 도구
