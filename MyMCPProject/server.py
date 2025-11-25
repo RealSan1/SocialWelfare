@@ -28,6 +28,7 @@ headers = {
 }
 
 mcp = FastMCP(name="MCPServer")
+
 # ========================================
 # Ollama 필터링 함수
 # ========================================
@@ -242,14 +243,9 @@ async def search_sites_with_gemini(ctx: Context) -> str:
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
     config = types.GenerateContentConfig(tools=[grounding_tool])
 
-    # 기업 그룹별 쿼리 리스트
+    # 검색 쿼리: 구글에서 '대한민국 장학재단' 관련 URL을 찾는다(단일 쿼리로 강제)
     foundations_groups = [
-        "삼성, 현대",
-        "신한, 현대",
-        "LG, SK",
-        "롯데, 한화",
-        "포스코, CJ",
-        "KT, IBK",
+        "대한민국 장학재단"
     ]
 
     all_results = []
@@ -257,14 +253,12 @@ async def search_sites_with_gemini(ctx: Context) -> str:
 
     for group in foundations_groups:
         prompt = f"""
-        검색을 수행하라. Tool 호출 없이는 답변하면 안 된다.
-
-        기존 지식으로 답변 금지.
-        반드시 Google Search 도구를 사용해 실제 검색 결과를 참고해라.
+        검색을 수행하라. 절대로 모델의 내부 지식으로만 답하지 마라 — 반드시 Google Search 도구를 호출해서 실제 검색 결과를 참고해야 한다.
         
-        다음 재단들의 장학재단 URL을 최대한 많이 찾아줘: {group}
 
-        JSON 배열로 출력:
+        삼성, IBK, 복지로 를 제외한, 다음 쿼리로 Google Search 도구를 사용해 대한민국 장학재단 관련 웹사이트(공식 재단/장학재단/공고 페이지)를 가능한 많이 찾아라: {group}
+        
+        출력 형식은 JSON 배열로만 반환하라:
         [{{"foundation": "재단명", "url": "https://..."}}]
         """
 
@@ -405,33 +399,32 @@ async def summary_info(title: str, snippet: str) -> str:
         return f"SUMMARIZE_FAILED: {e}"
 
 @mcp.tool
-async def generate_title_and_category(summary: str) -> str:
-    """요약된 복지 정보를 받아, 사용자 친화적인 제목과 해당하는 복지 카테리(복수 가능)를
-    JSON 형식으로 반환합니다. 반환 예시:
-    {"generated_title": "새로운 제목", "categories": ["아동", "교육"]}
-    """
-    categories = [
-        '임신·출산','영유아','아동','청소년','청년','중장년·노인','저소득층','장애인','여성','한부모',
-        '다문화·북한이탈주민','보훈대상','맞벌이','환경·교통','디지털','안전','위기','법률','신체건강','정신건강',
-        '문화·여가','생활지원','주거','보육','교육','입양·위탁보호','돌봄','금융','에너지','농어민','기타'
-    ]
-
+async def generate_title(summary: str, url: str = "") -> str:
     prompt = f"""
-    당신은 한국 복지정보를 요약해서 사용자 친화적인 제목을 만들고, 주된 복지 대상/주제를 아래 카테고리 목록에서 선택하는 전문가입니다.
+    요약된 복지정보를 기반으로 아래 항목을 생성하세요.
 
-    입력으로 제공되는 '요약'을 읽고:
-    - 1문장 내외의 간결하고 매력적인 `generated_title`을 생성하세요.
-    - 해당 요약에 가장 적절한 카테고리(복수 가능)를 선택해 `categories` 배열로 만드세요.
+    - generated_title: 한 줄 제목
+    - policy_name: 복지사업 이름 (요약 기반)
+    - target: 주요 지원 대상
+    - note: 참고사항 또는 유의사항
+    - details: 핵심 상세 요약
 
-    반드시 출력은 유효한 JSON 한 개체만 다음 형식으로 출력하세요 (다른 텍스트는 허용하지 않음):
-    {{"generated_title": "...", "categories": ["...", "..."]}}
+    출력은 JSON 한 개체만 생성:
+    {{
+        "generated_title": "...",
+        "policy_link": "...",
+        "target": "...",
+        "note": "...",
+        "details": "..."
+    }}
 
-    카테고리 목록:
-    {', '.join(categories)}
-
-    요약:
+    입력 요약:
     {summary}
+
+    URL:
+    {url}
     """
+
     try:
         client = genai.Client(api_key=GEMINI_KEY)
         response = client.models.generate_content(
@@ -440,7 +433,7 @@ async def generate_title_and_category(summary: str) -> str:
         )
         text = (response.text or "").strip()
 
-        # JSON 객체 추출
+        # JSON 추출
         m = re.search(r"\{.*\}", text, re.DOTALL)
         if m:
             jtxt = m.group(0)
@@ -450,17 +443,55 @@ async def generate_title_and_category(summary: str) -> str:
             except Exception:
                 return jtxt
 
-        # fallback: 간단한 JSON 생성
-        # 가능한 경우 카테고리 키워드 추출
-        found = []
-        for c in categories:
-            if c in summary and c not in found:
-                found.append(c)
+        # fallback
+        first_line = summary.split('\n')[0][:80]
 
-        gen_title = summary.split('\n')[0][:80]
-        return json.dumps({"generated_title": gen_title, "categories": found or ["기타"]}, ensure_ascii=False)
+        return json.dumps({
+            "generated_title": first_line,
+            "policy_name": first_line,
+            "target": "",
+            "note": "",
+            "details": summary
+        }, ensure_ascii=False)
+
     except Exception as e:
-        return json.dumps({"generated_title": "", "categories": ["기타"], "error": str(e)}, ensure_ascii=False)
+        return json.dumps({
+            "generated_title": "",
+            "policy_name": "",
+            "target": "",
+            "note": "",
+            "details": "",
+            "error": str(e)
+        }, ensure_ascii=False)
+
+
+@mcp.tool
+async def generate_title_and_category(summary: str, url: str = "") -> str:
+    """호환용 래퍼: 기존 generate_title 결과를 가져와서 'categories' 필드를 포함해 반환합니다.
+    현재는 분류 로직을 별도 호출하지 않으므로 빈 리스트를 반환합니다. 필요시 분류 로직을 추가하세요.
+    """
+    try:
+        # generate_title은 같은 모듈에 정의된 async 함수이므로 직접 호출
+        res = await generate_title(summary, url)
+        # res는 JSON 문자열 또는 텍스트일 수 있음
+        try:
+            obj = json.loads(res)
+        except Exception:
+            # fallback: 텍스트를 details로 넣어 JSON 생성
+            obj = {
+                "generated_title": (summary.split('\n')[0][:80] if summary else ""),
+                "policy_name": "",
+                "target": "",
+                "note": "",
+                "details": res
+            }
+
+        # ensure categories field exists (empty list for now)
+        obj.setdefault("categories", [])
+        return json.dumps(obj, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
+
 
 # ========================================
 # Ollama / Gemini MCP 도구

@@ -34,14 +34,26 @@
     </table>
 
     <div class="selected-excluded">
-        <div id="selected-list">선택된 목록: 없음</div>
-        <div id="excluded-list">제외된 목록: 없음</div>
+        <div class="filter-list-header">
+            <div class="filter-lists">
+                <div id="selected-list">선택된 목록: 없음</div>
+                <div id="excluded-list">제외된 목록: 없음</div>
+            </div>
+            <button id="clear-filters" class="clear-filters-btn">초기화</button>
+        </div>
+    </div>
+</div>
+
+<div class="results-header">
+    <span id="result-count">검색 결과: 0개</span>
+    <div class="view-toggle">
+        <button class="view-btn active" data-view="all">전체</button>
+        <button class="view-btn" data-view="favorites">⭐ (<span id="favorite-count">0</span>)</button>
     </div>
 </div>
 
 <div class="service-list"></div>
 <div id="pagination" class="pagination"></div>
 
-<footer>© 2025 통합 복지서비스</footer>
 </body>
 </html>
