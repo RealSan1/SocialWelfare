@@ -41,11 +41,11 @@ async def log_handler(msg: LogMessage):
 
 async def main():
     async with Client("server.py", log_handler=log_handler) as client:
-        # urls_json = await client.call_tool("search_sites_with_gemini", {})
-        # urls = json.loads(urls_json.data)
-        # data = [item["url"] for item in urls]
-        data = ['https://change.beautifulfund.org/?_gl=1*1dk7s8n*_gcl_au*MTUyNTMxODE2MC4xNzY0MDYzNjE5*_ga*MTYyMTI2MzY5OS4xNzY0MDYzNjE5*_ga_KZ1GV3P3KP*czE3NjQwNjY4OTEkbzIkZzEkdDE3NjQwNjgxNDYkajYwJGwwJGgw&_ga=2.188943913.302348721.1764063619-1621263699.1764063619']
-        results = await client.call_tool("crawl_from_search", { "urls": data, "max_depth": 1 })
+        urls_json = await client.call_tool("search_sites_with_gemini", {})
+        urls = json.loads(urls_json.data)
+        data = [item["url"] for item in urls]
+        # data = ['']
+        results = await client.call_tool("crawl_from_search", { "urls": data, "max_depth": 2 })
 
         text_data = results.content[0].text
         parsed = json.loads(text_data)
@@ -155,7 +155,8 @@ async def main():
                         print(f"DB에 저장됨: 서비스ID={service_id}")
                 except Exception as e:
                     print("DB 저장 실패:", repr(e))
-
+            else:
+                print(f"검증 실패로 저장 건너뜀: 제목={title}, URL={url}, 결과={res_text}")
 
 
 if __name__ == "__main__":

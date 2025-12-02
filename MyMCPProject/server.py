@@ -37,21 +37,21 @@ async def filter_with_ollama(item):
         return None
 
     prompt = f"""
-다음 웹페이지 본문이 단순한 '재단소개, 인사말, 연혁, 메뉴구조'인지,
-아니면 실제 '지원사업, 장학, 복지, 프로그램 모집 공고'인지 구분하세요.
+    다음 웹페이지 본문이 단순한 '재단소개, 인사말, 연혁, 메뉴구조'인지,
+    아니면 실제 '지원사업, 장학, 복지, 프로그램 모집 공고'인지 구분하세요.
 
-단순 소개형이면 "IGNORE"만 출력하세요.
-지원사업 관련이면 아래 형식으로 요약하세요:
+    단순 소개형이면 "IGNORE"만 출력하세요.
+    지원사업 관련이면 아래 형식으로 요약하세요:
 
-[프로그램명]: ...
-[지원대상]: ...
-[지원내용]: ...
-[신청기간]: ...
-[신청링크]: {item['url']}
+    [프로그램명]: ...
+    [지원대상]: ...
+    [지원내용]: ...
+    [신청기간]: ...
+    [신청링크]: {item['url']}
 
-본문:
-{item['snippet']}
-"""
+    본문:
+    {item['snippet']}
+    """
     try:
         response = await asyncio.to_thread(
             ollama.chat,
@@ -94,6 +94,8 @@ EXCLUDE_KEYWORDS_URL = [
     "intro", "greeting", "about", "history", "연혁",
     "privacy", "terms", "login", "logout", "qna", "faq", "contact",
     "공지", "소식", "news", "board", "notice",
+    "community", "gallery", "forum", "bbs", "comment", "comments", "photo", "photos",
+    "/gallery", "/community", "/forum", "/bbs", "/board/", "/comment", "/webzine", "/video", "/popup"
 ]
 
 def is_excluded_url(url: str) -> bool:
@@ -104,7 +106,9 @@ def is_meaningless_text(text: str):
     text = text.strip()
     exclude_phrases = [
         "인사말", "설립취지", "연혁", "소개합니다", "아이디", "비밀번호",
-        "이사회", "정보마당", "찾아오시는 길", "오시는 길", "공지사항", "조직도", "일반공지", "영상"
+        "이사회", "정보마당", "찾아오시는 길", "오시는 길", "공지사항", "조직도", "일반공지", "영상", "video",
+        "고객센터", "자주 묻는 질문", "FAQ", "문의하기", "문의하기", "contact us",
+        "©", "All rights reserved", "Privacy Policy", "Terms of Service",
     ]
     matched = [p for p in exclude_phrases if p in text]
     if matched:
@@ -213,7 +217,8 @@ async def crawl_playwright_async(ctx: Context, start_url: str, max_depth: int):
 
             # 내부 링크 수집
             try:
-                anchors = await page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+                anchors = await page.locator("a[href]").evaluate_all("els => els.map(e => e.href)")
+
             except Exception as e:
                 anchors = []
 
@@ -243,53 +248,43 @@ async def search_sites_with_gemini(ctx: Context) -> str:
     grounding_tool = types.Tool(google_search=types.GoogleSearch())
     config = types.GenerateContentConfig(tools=[grounding_tool])
 
-    # 검색 쿼리: 구글에서 '대한민국 장학재단' 관련 URL을 찾는다(단일 쿼리로 강제)
-    foundations_groups = [
-        "대한민국 장학재단"
-    ]
-
     all_results = []
     seen_urls = set()
 
-    for group in foundations_groups:
-        prompt = f"""
-        검색을 수행하라. 절대로 모델의 내부 지식으로만 답하지 마라 — 반드시 Google Search 도구를 호출해서 실제 검색 결과를 참고해야 한다.
-        
+    prompt = f"""
+    검색을 수행하라. 절대로 모델의 내부 지식으로만 답하지 마라 — 반드시 Google Search 도구를 호출해서 실제 검색 결과를 참고해야 한다.
+    
+    지자체/정부 사이트, 삼성, IBK, 복지로를 제외한, 다음 쿼리로 Google Search 도구를 사용해 대한민국 장학재단을 검색해서 찾아라.
+    
+    출력 형식은 JSON 배열로만 반환하라:
+    [{{"foundation": "재단명", "url": "https://..."}}]
+    """
+    try:
+        response = client.models.generate_content(
+            # model="gemini-2.5-flash-lite",
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=config
+        )
+        text = response.text or ""
 
-        삼성, IBK, 복지로 를 제외한, 다음 쿼리로 Google Search 도구를 사용해 대한민국 장학재단 관련 웹사이트(공식 재단/장학재단/공고 페이지)를 가능한 많이 찾아라: {group}
-        
-        출력 형식은 JSON 배열로만 반환하라:
-        [{{"foundation": "재단명", "url": "https://..."}}]
-        """
+        # JSON 배열 부분만 추출하는 함수 필요
+        json_str = extract_first_json_array(text)
+        if not json_str:
+            await ctx.debug(f"JSON 배열 추출 실패")
 
-        try:
-            response = client.models.generate_content(
-                # model="gemini-2.5-flash-lite",
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config=config
-            )
-            text = response.text or ""
+        data = json.loads(json_str)
 
-            # JSON 배열 부분만 추출하는 함수 필요
-            json_str = extract_first_json_array(text)
-            if not json_str:
-                await ctx.debug(f"[{group}] JSON 배열 추출 실패")
-                continue
-
-            data = json.loads(json_str)
-
-            for item in data:
-                url = item.get("url", "").strip()
-                if url and url not in seen_urls and is_valid_url(url):
-                    seen_urls.add(url)
-                    all_results.append(item)
-                else:
-                    await ctx.debug(f"유효하지 않은 URL 제외: {url}")
-
-        except Exception as e:
-            await ctx.debug(f"[{group}] Gemini 호출 또는 파싱 오류: {e}")
-            continue
+        for item in data:
+            url = item.get("url", "").strip()
+            if url and url not in seen_urls and is_valid_url(url):
+                seen_urls.add(url)
+                all_results.append(item)
+            else:
+                await ctx.debug(f"유효하지 않은 URL 제외: {url}")
+                
+    except Exception as e:
+        await ctx.debug(f"Gemini 호출 또는 파싱 오류: {e}")
 
     await ctx.debug(f"총 유니크 URL 개수: {len(all_results)}")
     return json.dumps(all_results, ensure_ascii=False)
@@ -300,7 +295,6 @@ async def crawl_from_search(ctx: Context, urls: list, max_depth: int) -> str:
     await ctx.debug("크롤링 시작")
 
     handled = []
-
     try:
         for url in urls:
             await ctx.debug(f"단일 URL 처리 시작: {url}")
@@ -491,42 +485,6 @@ async def generate_title_and_category(summary: str, url: str = "") -> str:
         return json.dumps(obj, ensure_ascii=False)
     except Exception as e:
         return json.dumps({"error": str(e)}, ensure_ascii=False)
-
-
-# ========================================
-# Ollama / Gemini MCP 도구
-# ========================================
-@mcp.tool
-def chat_ollama(prompt: str) -> str:
-    try:
-        resp = requests.post(
-            "http://localhost:11434/api/generate",
-            json={"model": "gpt-oss:20b", "prompt": prompt, "stream": False},
-            headers=headers,
-            timeout=30
-        )
-        return resp.json().get("response", "No response")
-    except Exception as e:
-        logging.error("GPT-OSS 에러발생")
-        return f"Ollama request failed: {e}"
-
-@mcp.tool
-def chat_gemini(prompt: str) -> str:
-    try:
-        client = genai.Client(api_key=GEMINI_KEY)
-        grounding_tool = types.Tool(google_search=types.GoogleSearch())
-        config = types.GenerateContentConfig(tools=[grounding_tool])
-
-        response = client.models.generate_content(
-            model="gemini-2.5-flash-lite",
-            contents=prompt,
-            config=config
-        )
-
-        text = response.text if response.text else ""
-        return text.strip() if text else "(No response)"
-    except Exception as e:
-        return f"[ERROR] Gemini: {e}"
 
 # ========================================
 # MCP 서버 실행
