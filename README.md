@@ -86,7 +86,7 @@
 
 ---
 
-##  MCP
+##  [MCP](https://github.com/RealSan1/SocialWelfare/tree/main/MyMCPProject)
   *  **MCP**는 모델과 외부 도구(크롤러, DB, 파일 시스템 등)를 표준화된 인터페이스로 연동하기 위한 경량 프로토콜입니다. 
 
 ### 1. MCP 구조
